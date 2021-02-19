@@ -6,3 +6,5 @@ MUJOCO_LOG.TXT
 venv/
 .vscode/
 logdir/
+gpulab-config.json
+submit.sh
