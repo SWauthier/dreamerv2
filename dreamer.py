@@ -26,6 +26,18 @@ import models
 import tools
 import wrappers
 
+from gym.envs.registration import registry, register, make, spec
+
+register(
+    id='DarkWorld-v0',
+    entry_point='active_inference.environments.darkworld:DarkWorldEnv',
+    kwargs={
+        'max_length': 250,
+        'player_fov': 198,
+        'close_paths':True
+    }
+)
+
 
 class Dreamer(tools.Module):
 

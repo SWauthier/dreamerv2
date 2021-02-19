@@ -3,6 +3,7 @@ import threading
 import gym
 import numpy as np
 
+import cv2
 
 class DeepMindControl:
 
@@ -71,27 +72,28 @@ class Atari:
       self, name, action_repeat=4, size=(84, 84), grayscale=True, noops=30,
       life_done=False, sticky_actions=True, all_actions=False):
     assert size[0] == size[1]
-    import gym.wrappers
-    import gym.envs.atari
+    # import gym.wrappers
+    # import gym.envs.atari
     with self.LOCK:
-      env = gym.envs.atari.AtariEnv(
-          game=name, obs_type='image', frameskip=1,
-          repeat_action_probability=0.25 if sticky_actions else 0.0,
-          full_action_space=all_actions)
-    # Avoid unnecessary rendering in inner env.
-    env._get_obs = lambda: None
+      # env = gym.envs.atari.AtariEnv(
+      #     game=name, obs_type='image', frameskip=1,
+      #     repeat_action_probability=0.25 if sticky_actions else 0.0,
+      #     full_action_space=all_actions)
+      env = gym.make("DarkWorld-v0")
+    # # Avoid unnecessary rendering in inner env.
+    # env._get_obs = lambda: None
     # Tell wrapper that the inner env has no action repeat.
     env.spec = gym.envs.registration.EnvSpec('NoFrameskip-v0')
-    env = gym.wrappers.AtariPreprocessing(
-        env, noops, action_repeat, size[0], life_done, grayscale)
+    # env = gym.wrappers.AtariPreprocessing(
+    #     env, noops, action_repeat, size[0], life_done, grayscale)
+    env = WarpFrame(env, size[0], size[1], grayscale)
     self._env = env
     self._grayscale = grayscale
 
   @property
   def observation_space(self):
     return gym.spaces.Dict({
-        'image': self._env.observation_space,
-        'ram': gym.spaces.Box(0, 255, (128,), np.uint8),
+        'image': self._env.observation_space
     })
 
   @property
@@ -106,14 +108,14 @@ class Atari:
       image = self._env.reset()
     if self._grayscale:
       image = image[..., None]
-    obs = {'image': image, 'ram': self._env.env._get_ram()}
+    obs = {'image': image}
     return obs
 
   def step(self, action):
     image, reward, done, info = self._env.step(action)
     if self._grayscale:
       image = image[..., None]
-    obs = {'image': image, 'ram': self._env.env._get_ram()}
+    obs = {'image': image}
     return obs, reward, done, info
 
   def render(self, mode):
@@ -279,4 +281,57 @@ class RewardObs:
   def reset(self):
     obs = self._env.reset()
     obs['reward'] = 0.0
+    return obs
+
+
+class WarpFrame(gym.ObservationWrapper):
+  def __init__(self, env, width=84, height=84, grayscale=True, dict_space_key=None):
+    """
+    Warp frames to 84x84 as done in the Nature paper and later work.
+    If the environment uses dictionary observations, `dict_space_key` can be specified which indicates which
+    observation should be warped.
+    """
+    super().__init__(env)
+    self._width = width
+    self._height = height
+    self._grayscale = grayscale
+    self._key = dict_space_key
+    if self._grayscale:
+      num_colors = 1
+    else:
+      num_colors = 3
+
+    new_space = gym.spaces.Box(
+      low=0,
+      high=255,
+      shape=(self._height, self._width) if num_colors == 1 else (self._height, self._width, num_colors),
+      dtype=np.uint8,
+    )
+    if self._key is None:
+      original_space = self.observation_space
+      self.observation_space = new_space
+    else:
+      original_space = self.observation_space.spaces[self._key]
+      self.observation_space.spaces[self._key] = new_space
+    assert original_space.dtype == np.uint8 and len(original_space.shape) == 3
+
+  def observation(self, obs):
+    if self._key is None:
+      frame = obs
+    else:
+      frame = obs[self._key]
+
+    if self._grayscale:
+      frame = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
+    frame = cv2.resize(
+      frame, (self._width, self._height), interpolation=cv2.INTER_AREA
+    )
+    # if self._grayscale:
+    #   frame = np.expand_dims(frame, -1)
+
+    if self._key is None:
+      obs = frame
+    else:
+      obs = obs.copy()
+      obs[self._key] = frame
     return obs
